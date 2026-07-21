@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
+import { getSessionOrigin } from '@/shared/session-origins.js';
 import { sessionSynchronizerService } from '@/modules/providers/index.js';
 import { WS_OPEN_STATE, connectedClients } from '@/modules/websocket/index.js';
 import type { RealtimeClientConnection } from '@/shared/types.js';
@@ -14,6 +15,7 @@ type SessionSummary = {
   messageCount: number;
   lastActivity: string;
   external: boolean;
+  origin: string | null;
 };
 
 type SessionRepositoryRow = {
@@ -131,6 +133,9 @@ function mapSessionRowToSummary(row: SessionRepositoryRow): SessionSummary {
     // session_id === provider_session_id therefore means "started outside
     // cloudcli" — surfaced so the UI can badge sessions to leave alone.
     external: Boolean(row.provider_session_id) && row.session_id === row.provider_session_id,
+    // Launch-wrapper registry tag ("mc" = claudex/Mission-Control boot); the
+    // transcript itself carries no record of who started the session.
+    origin: getSessionOrigin(row.provider_session_id),
   };
 }
 

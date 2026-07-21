@@ -35,7 +35,9 @@ type SidebarSessionItemProps = {
 
 // Short provider tags for sessions started OUTSIDE cloudcli — a visual "leave
 // this one alone" marker (resuming an externally-owned session can interrupt
-// the live process that owns it).
+// the live process that owns it). Sessions the launch wrapper registered with
+// an origin tag show that instead: "mc" = Mission Control boot (claudex), so
+// "cc" is reserved for Claude sessions started elsewhere (e.g. Claude remote).
 const EXTERNAL_BADGE_LABELS: Partial<Record<LLMProvider, string>> = {
   claude: 'cc',
   opencode: 'oc',
@@ -48,12 +50,24 @@ function ExternalSessionBadge({ session }: { session: SessionWithProvider }) {
     return null;
   }
 
+  const isMc = session.origin === 'mc';
+  const label = isMc ? 'mc' : (EXTERNAL_BADGE_LABELS[session.__provider] ?? 'ext');
+
   return (
     <span
-      className="flex-shrink-0 rounded bg-amber-500/15 px-1 font-mono text-[10px] font-medium leading-4 text-amber-600 dark:text-amber-400"
-      title="Started outside cloudcli — resuming may interrupt the process that owns it"
+      className={cn(
+        'flex-shrink-0 rounded px-1 font-mono text-[10px] font-medium leading-4',
+        isMc
+          ? 'bg-sky-500/15 text-sky-600 dark:text-sky-400'
+          : 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+      )}
+      title={
+        isMc
+          ? 'Booted by Mission Control (claudex) — resuming may interrupt the process that owns it'
+          : 'Started outside cloudcli — resuming may interrupt the process that owns it'
+      }
     >
-      {EXTERNAL_BADGE_LABELS[session.__provider] ?? 'ext'}
+      {label}
     </span>
   );
 }
