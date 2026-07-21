@@ -133,6 +133,10 @@ const wss = createWebSocketServer(server, {
 
             return null;
         },
+        resolveSessionTranscriptPath: (sessionId) => {
+            const dbSession = sessionsDb.getSessionById(sessionId);
+            return dbSession?.jsonl_path ?? null;
+        },
         stripAnsiSequences,
         normalizeDetectedUrl,
         extractUrlsFromText,

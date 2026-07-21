@@ -33,6 +33,31 @@ type SidebarSessionItemProps = {
   t: TFunction;
 };
 
+// Short provider tags for sessions started OUTSIDE cloudcli — a visual "leave
+// this one alone" marker (resuming an externally-owned session can interrupt
+// the live process that owns it).
+const EXTERNAL_BADGE_LABELS: Partial<Record<LLMProvider, string>> = {
+  claude: 'cc',
+  opencode: 'oc',
+  codex: 'c',
+  cursor: 'cu',
+};
+
+function ExternalSessionBadge({ session }: { session: SessionWithProvider }) {
+  if (!session.external) {
+    return null;
+  }
+
+  return (
+    <span
+      className="flex-shrink-0 rounded bg-amber-500/15 px-1 font-mono text-[10px] font-medium leading-4 text-amber-600 dark:text-amber-400"
+      title="Started outside cloudcli — resuming may interrupt the process that owns it"
+    >
+      {EXTERNAL_BADGE_LABELS[session.__provider] ?? 'ext'}
+    </span>
+  );
+}
+
 /**
  * Compact relative time for sidebar rows:
  * <1m, Xm, Xhr, Xd.
@@ -170,6 +195,7 @@ export default function SidebarSessionItem({
 
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
+                <ExternalSessionBadge session={session} />
                 <div className="min-w-0 flex-1 truncate text-sm font-normal text-foreground">{sessionView.sessionName}</div>
                 {isProcessing ? (
                   <span className="ml-auto flex-shrink-0">
@@ -239,6 +265,7 @@ export default function SidebarSessionItem({
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
+                <ExternalSessionBadge session={session} />
                 <div className="min-w-0 flex-1 truncate text-sm font-normal text-foreground">{sessionView.sessionName}</div>
                 {isProcessing ? (
                   <span

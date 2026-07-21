@@ -37,6 +37,9 @@ export interface ProjectSession {
   lastActivity?: string;
   messageCount?: number;
   provider?: LLMProvider;
+  // True when the session was started outside cloudcli (discovered on disk) —
+  // resuming it may interrupt a live external process, so the UI badges it.
+  external?: boolean;
   __provider?: LLMProvider;
   // Tags the session with the owning project's DB `projectId` so UI handlers
   // (session switching, sidebar focus, etc.) can match against selectedProject.

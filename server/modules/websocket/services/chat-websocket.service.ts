@@ -6,6 +6,7 @@ import { sessionsDb } from '@/modules/database/index.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import { getGlobalImageAssetsDir, normalizeImageDescriptors } from '@/shared/image-attachments.js';
+import { getTranscriptIdleSeconds, isTranscriptRecentlyActive } from '@/shared/session-activity.js';
 import type {
   AnyRecord,
   AuthenticatedWebSocketRequest,
@@ -165,6 +166,24 @@ async function handleChatSend(
   const spawnFn = dependencies.spawnFns[provider];
   if (!spawnFn) {
     sendProtocolError(ws, 'UNSUPPORTED_PROVIDER', `Provider "${provider}" is not available.`, sessionId);
+    return;
+  }
+
+  // External sessions (discovered on disk, not started by cloudcli) may have
+  // a live writer of their own — e.g. a CLI foreman loop. Resuming one whose
+  // transcript is still being written would attach a second writer to a
+  // single-writer JSONL and interrupt the running process. cloudcli-started
+  // sessions are exempt: their concurrency is handled by the run registry.
+  const isExternalSession =
+    Boolean(session.provider_session_id) && session.session_id === session.provider_session_id;
+  if (isExternalSession && isTranscriptRecentlyActive(session.jsonl_path)) {
+    const idleSeconds = Math.round(getTranscriptIdleSeconds(session.jsonl_path) ?? 0);
+    sendProtocolError(
+      ws,
+      'SESSION_ACTIVE_EXTERNALLY',
+      `Session "${sessionId}" appears to be running outside cloudcli (transcript written ${idleSeconds}s ago). Refusing to resume so the live process is not interrupted.`,
+      sessionId
+    );
     return;
   }
 

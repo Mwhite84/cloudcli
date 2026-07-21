@@ -5,6 +5,7 @@ import path from 'node:path';
 import pty, { type IPty } from 'node-pty';
 import { WebSocket, type RawData } from 'ws';
 
+import { getResumeGuardSeconds, getTranscriptIdleSeconds } from '@/shared/session-activity.js';
 import { parseIncomingJsonObject } from '@/shared/utils.js';
 
 type ShellIncomingMessage = {
@@ -39,6 +40,7 @@ type ShellWebSocketDependencies = {
     sessionId: string,
     provider: string,
   ) => string | null | undefined;
+  resolveSessionTranscriptPath: (sessionId: string) => string | null;
   stripAnsiSequences: (content: string) => string;
   normalizeDetectedUrl: (url: string) => string | null;
   extractUrlsFromText: (content: string) => string[];
@@ -161,6 +163,69 @@ function buildShellCommand(
     return `claude --resume "${resumeSessionId}" || claude`;
   }
   return command;
+}
+
+/**
+ * Refuses to spawn a provider `--resume` against a transcript that looks
+ * live (written within the resume-guard window). A second writer on a
+ * single-writer JSONL interrupts whatever process owns the session — e.g. a
+ * foreman loop running in another terminal. Returns a replacement command
+ * that explains the refusal and drops into a plain shell, or null when the
+ * resume is safe to proceed.
+ */
+function buildResumeGuardCommand(
+  message: ShellIncomingMessage,
+  dependencies: ShellWebSocketDependencies
+): string | null {
+  const guardSeconds = getResumeGuardSeconds();
+  if (guardSeconds === 0) {
+    return null;
+  }
+
+  const hasSession = readBoolean(message.hasSession);
+  const sessionId = readString(message.sessionId);
+  const initialCommand = readString(message.initialCommand);
+  const provider = readString(message.provider, 'claude');
+  const isPlainShell =
+    readBoolean(message.isPlainShell) ||
+    (!!initialCommand && !hasSession) ||
+    provider === 'plain-shell';
+
+  if (isPlainShell || !hasSession || !sessionId) {
+    return null;
+  }
+
+  // Only guarded when the resume would actually target an on-disk transcript.
+  if (!resolveResumeSessionId(message, dependencies)) {
+    return null;
+  }
+
+  let transcriptPath: string | null = null;
+  try {
+    transcriptPath = dependencies.resolveSessionTranscriptPath(sessionId);
+  } catch (error) {
+    console.error('Failed to resolve session transcript path:', error);
+  }
+
+  const idleSeconds = getTranscriptIdleSeconds(transcriptPath);
+  if (idleSeconds === null || idleSeconds >= guardSeconds) {
+    return null;
+  }
+
+  const idle = Math.round(idleSeconds);
+  const warningLines = [
+    `!! Session appears to be RUNNING elsewhere (transcript written ${idle}s ago).`,
+    `Refusing to resume: a second writer would interrupt the live process.`,
+    `Wait for it to go idle (guard window: ${guardSeconds}s) and reopen, or set CLOUDCLI_RESUME_GUARD_SECONDS=0 to disable this guard.`,
+  ];
+
+  if (os.platform() === 'win32') {
+    const echoes = warningLines.map((line) => `Write-Host '${line}'`).join('; ');
+    return `${echoes}; powershell -NoLogo`;
+  }
+
+  const echoes = warningLines.map((line) => `echo '${line}'`).join('; ');
+  return `${echoes}; exec ${process.env.SHELL || 'bash'}`;
 }
 
 function readEnvValue(env: NodeJS.ProcessEnv, key: string): string | undefined {
@@ -325,7 +390,8 @@ export function handleShellConnection(
           return;
         }
 
-        const shellCommand = buildShellCommand(data, dependencies);
+        const shellCommand =
+          buildResumeGuardCommand(data, dependencies) ?? buildShellCommand(data, dependencies);
         const resumeSessionId = resolveResumeSessionId(data, dependencies);
         const shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
         const shellArgs =

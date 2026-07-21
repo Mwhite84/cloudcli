@@ -13,11 +13,13 @@ type SessionSummary = {
   summary: string;
   messageCount: number;
   lastActivity: string;
+  external: boolean;
 };
 
 type SessionRepositoryRow = {
   provider: string;
   session_id: string;
+  provider_session_id?: string | null;
   custom_name?: string | null;
   updated_at?: string | null;
   created_at?: string | null;
@@ -73,7 +75,7 @@ export type ProjectSessionsPageApiView = {
   };
 };
 
-const DEFAULT_PROJECT_SESSIONS_PAGE_SIZE = 20;
+const DEFAULT_PROJECT_SESSIONS_PAGE_SIZE = 5;
 const MAX_PROJECT_SESSIONS_PAGE_SIZE = 200;
 
 /**
@@ -124,6 +126,11 @@ function mapSessionRowToSummary(row: SessionRepositoryRow): SessionSummary {
     summary: row.custom_name || '',
     messageCount: 0,
     lastActivity: row.updated_at ?? row.created_at ?? new Date().toISOString(),
+    // App-started sessions get an app-allocated UUID with the provider-native
+    // id attached later; disk-discovered ones are keyed BY the provider id.
+    // session_id === provider_session_id therefore means "started outside
+    // cloudcli" — surfaced so the UI can badge sessions to leave alone.
+    external: Boolean(row.provider_session_id) && row.session_id === row.provider_session_id,
   };
 }
 
