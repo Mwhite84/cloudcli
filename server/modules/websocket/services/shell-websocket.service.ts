@@ -6,6 +6,7 @@ import pty, { type IPty } from 'node-pty';
 import { WebSocket, type RawData } from 'ws';
 
 import { getResumeGuardSeconds, getTranscriptIdleSeconds } from '@/shared/session-activity.js';
+import { getSessionOriginEntry } from '@/shared/session-origins.js';
 import { parseIncomingJsonObject } from '@/shared/utils.js';
 
 type ShellIncomingMessage = {
@@ -210,6 +211,19 @@ function buildResumeGuardCommand(
   const idleSeconds = getTranscriptIdleSeconds(transcriptPath);
   if (idleSeconds === null || idleSeconds >= guardSeconds) {
     return null;
+  }
+
+  // Best case: the launch wrapper recorded the tmux session hosting this
+  // process. Attaching to that tmux IS the live process — same writer, fully
+  // interactive, nothing interrupted.
+  const providerSessionId = resolveResumeSessionId(message, dependencies);
+  const tmuxName = getSessionOriginEntry(providerSessionId)?.tmux;
+  if (tmuxName && SAFE_SESSION_ID_PATTERN.test(tmuxName) && os.platform() !== 'win32') {
+    return (
+      `echo 'Session is live in tmux "${tmuxName}" — attaching (Ctrl+B then D to detach).'; ` +
+      `tmux attach-session -t "${tmuxName}" || ` +
+      `(echo 'tmux session "${tmuxName}" is gone — dropping to a plain shell.'; exec ${process.env.SHELL || 'bash'})`
+    );
   }
 
   const idle = Math.round(idleSeconds);

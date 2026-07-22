@@ -7,6 +7,7 @@ import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import { getGlobalImageAssetsDir, normalizeImageDescriptors } from '@/shared/image-attachments.js';
 import { getTranscriptIdleSeconds, isTranscriptRecentlyActive } from '@/shared/session-activity.js';
+import { getSessionOriginEntry } from '@/shared/session-origins.js';
 import type {
   AnyRecord,
   AuthenticatedWebSocketRequest,
@@ -178,10 +179,14 @@ async function handleChatSend(
     Boolean(session.provider_session_id) && session.session_id === session.provider_session_id;
   if (isExternalSession && isTranscriptRecentlyActive(session.jsonl_path)) {
     const idleSeconds = Math.round(getTranscriptIdleSeconds(session.jsonl_path) ?? 0);
+    const tmuxName = getSessionOriginEntry(session.provider_session_id)?.tmux;
+    const interactHint = tmuxName
+      ? ` It is live in tmux "${tmuxName}" — open this session's Terminal tab to attach and interact with it directly.`
+      : ` To interact with it, use the process that owns it (chat here again once it goes idle).`;
     sendProtocolError(
       ws,
       'SESSION_ACTIVE_EXTERNALLY',
-      `Session "${sessionId}" appears to be running outside cloudcli (transcript written ${idleSeconds}s ago). Refusing to resume so the live process is not interrupted.`,
+      `Session "${sessionId}" is running outside cloudcli (transcript written ${idleSeconds}s ago); sending a message from here would interrupt it.${interactHint}`,
       sessionId
     );
     return;
