@@ -229,9 +229,10 @@ const readOpenCodeModelParts = (id: string): { upstreamProvider: string; slug: s
   };
 };
 
-const isSupportedOpenCodeModelId = (id: string): boolean => (
-  readOpenCodeModelParts(id).upstreamProvider.toLowerCase() !== 'google'
-);
+// Every provider returned by `opencode models` is runnable through the
+// OpenCode harness. In particular, Google/Antigravity models must remain in
+// this catalog rather than being filtered by provider name.
+const isSupportedOpenCodeModelId = (_id: string): boolean => true;
 
 const readOpenCodeVerboseModelId = (model: OpenCodeVerboseModel): string | null => {
   const id = readOptionalString(model.id);
@@ -300,11 +301,11 @@ const mapOpenCodeVerboseModel = (model: OpenCodeVerboseModel): ProviderModelOpti
     value,
     label: readOptionalString(model.name) ?? labelForOpenCodeModelId(value),
     description: descriptionForOpenCodeModelId(value),
-    effort: effortValues.length > 0
+    ...(effortValues.length > 0
       ? {
-          values: effortValues,
+          effort: { values: effortValues },
         }
-      : undefined,
+      : {}),
   };
 };
 

@@ -58,6 +58,11 @@ test('OpenCode models provider formats frontend labels from provider-prefixed id
       description: 'anthropic - anthropic/claude-opus-4-7-fast',
     },
     {
+      value: 'google/model-alpha',
+      label: 'Model Alpha',
+      description: 'google - google/model-alpha',
+    },
+    {
       value: 'openai/gpt-5.4-mini-fast',
       label: 'GPT-5.4 Mini Fast',
       description: 'openai - openai/gpt-5.4-mini-fast',
@@ -137,6 +142,11 @@ google/model-alpha
           { value: 'max' },
         ],
       },
+    },
+    {
+      value: 'google/model-alpha',
+      label: 'Model Alpha',
+      description: 'google - google/model-alpha',
     },
   ]);
 });

@@ -96,8 +96,12 @@ export const sessionsService = {
     provider: LLMProvider;
     startedAt: number;
     lastSeq: number;
+    projectPath: string | null;
   }> {
-    return chatRunRegistry.listRunningRuns();
+    return chatRunRegistry.listRunningRuns().map((run) => ({
+      ...run,
+      projectPath: sessionsDb.getSessionById(run.sessionId)?.project_path?.trim() || null,
+    }));
   },
 
   /**
