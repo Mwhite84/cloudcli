@@ -20,6 +20,13 @@ const ACTION_KEYS = [
 ];
 const DEFAULT_ACTION_WORDS = ['Thinking', 'Processing', 'Analyzing', 'Working', 'Computing', 'Reasoning'];
 const EXIT_ANIMATION_MS = 220;
+/**
+ * Seconds without a live event before the indicator switches from "streaming"
+ * to a muted "quiet Ns" — the chat-side proof-of-life that answers "is it
+ * still working or has it stalled?" (a long tool call can legitimately go
+ * quiet, so this is informational, not an error).
+ */
+const QUIET_AFTER_SECONDS = 8;
 
 /**
  * Minimal response-in-progress indicator, in the spirit of the inline status
@@ -33,7 +40,9 @@ export default function ActivityIndicator({ activity, onAbort, isInputFocused = 
   const [renderedActivity, setRenderedActivity] = useState<SessionActivity | null>(activity);
   const [isExiting, setIsExiting] = useState(false);
   const startedAt = renderedActivity?.startedAt ?? null;
+  const lastActivityAt = renderedActivity?.lastActivityAt ?? null;
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [quietSeconds, setQuietSeconds] = useState(0);
 
   useEffect(() => {
     if (activity) {
@@ -55,11 +64,15 @@ export default function ActivityIndicator({ activity, onAbort, isInputFocused = 
 
   useEffect(() => {
     if (startedAt === null) return;
-    const update = () => setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    const update = () => {
+      const now = Date.now();
+      setElapsedSeconds(Math.max(0, Math.floor((now - startedAt) / 1000)));
+      setQuietSeconds(Math.max(0, Math.floor((now - (lastActivityAt ?? startedAt)) / 1000)));
+    };
     update();
     const timer = setInterval(update, 1000);
     return () => clearInterval(timer);
-  }, [startedAt]);
+  }, [startedAt, lastActivityAt]);
 
   if (!renderedActivity) return null;
 
@@ -67,6 +80,7 @@ export default function ActivityIndicator({ activity, onAbort, isInputFocused = 
   const label = (renderedActivity.statusText || actionWords[Math.floor(elapsedSeconds / 4) % actionWords.length])
     .replace(/\.+$/, '');
 
+  const isQuiet = quietSeconds >= QUIET_AFTER_SECONDS;
   const minutes = Math.floor(elapsedSeconds / 60);
   const seconds = elapsedSeconds % 60;
   const elapsedLabel = minutes < 1
@@ -87,9 +101,27 @@ export default function ActivityIndicator({ activity, onAbort, isInputFocused = 
     >
       <div className="flex items-end justify-between gap-2">
         <div className={`${tabSurfaceClassName} gap-2`}>
-          <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary" aria-hidden />
+          <span
+            className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+              isQuiet ? 'bg-muted-foreground/50' : 'animate-pulse bg-primary'
+            }`}
+            aria-hidden
+          />
           <Shimmer className="font-medium">{`${label}…`}</Shimmer>
           <span className="tabular-nums text-muted-foreground/60">{elapsedLabel}</span>
+          {isQuiet && (
+            <span
+              className="tabular-nums text-muted-foreground/50"
+              title={t('claudeStatus.quiet.hint', {
+                defaultValue: 'No output for a while — a long tool call, or possibly stalled.',
+              })}
+            >
+              {t('claudeStatus.quiet.label', {
+                count: quietSeconds,
+                defaultValue: '· quiet {{count}}s',
+              })}
+            </span>
+          )}
         </div>
 
         {renderedActivity.canInterrupt && onAbort && (

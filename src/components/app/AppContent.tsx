@@ -59,6 +59,7 @@ function AppContentInner() {
     markSessionProcessing,
     markSessionIdle,
     syncProcessingSessions,
+    bumpSessionActivity,
   } = useSessionProtection();
 
   const {
@@ -251,6 +252,7 @@ function AppContentInner() {
           onInputFocusChange={setIsInputFocused}
           onSessionProcessing={markSessionProcessing}
           onSessionIdle={markSessionIdle}
+          onSessionActivity={bumpSessionActivity}
           processingSessions={processingSessions}
           onNavigateToSession={(targetSessionId: string, options) =>
             navigate(`/session/${targetSessionId}`, { replace: Boolean(options?.replace) })

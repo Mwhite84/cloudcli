@@ -26,6 +26,7 @@ function ChatInterface({
   onInputFocusChange,
   onSessionProcessing,
   onSessionIdle,
+  onSessionActivity,
   processingSessions,
   onNavigateToSession,
   onSessionEstablished,
@@ -251,6 +252,7 @@ function ChatInterface({
     statusCheckSentAtRef,
     onSessionProcessing,
     onSessionIdle,
+    onSessionActivity,
     onWebSocketReconnect: handleWebSocketReconnect,
     sessionStore,
   });

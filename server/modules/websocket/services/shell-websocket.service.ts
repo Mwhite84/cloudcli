@@ -5,7 +5,8 @@ import path from 'node:path';
 import pty, { type IPty } from 'node-pty';
 import { WebSocket, type RawData } from 'ws';
 
-import { getResumeGuardSeconds, getTranscriptIdleSeconds } from '@/shared/session-activity.js';
+import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
+import { getResumeGuardSeconds } from '@/shared/session-activity.js';
 import { getSessionOriginEntry } from '@/shared/session-origins.js';
 import { parseIncomingJsonObject } from '@/shared/utils.js';
 
@@ -158,31 +159,33 @@ function buildShellCommand(
 
   const command = initialCommand || 'claude';
   if (resumeSessionId) {
-    if (os.platform() === 'win32') {
-      return `claude --resume "${resumeSessionId}"; if ($LASTEXITCODE -ne 0) { claude }`;
-    }
-    return `claude --resume "${resumeSessionId}" || claude`;
+    // No `|| claude` fallback: a failed `--resume` must fail loudly, not
+    // silently drop the operator into a brand-new, unrelated session they
+    // believe is their old one.
+    return `claude --resume "${resumeSessionId}"`;
   }
   return command;
 }
 
 /**
- * Refuses to spawn a provider `--resume` against a transcript that looks
- * live (written within the resume-guard window). A second writer on a
- * single-writer JSONL interrupts whatever process owns the session — e.g. a
- * foreman loop running in another terminal. Returns a replacement command
- * that explains the refusal and drops into a plain shell, or null when the
- * resume is safe to proceed.
+ * Chat is the single owner of every cloudcli-native session. This guard stops
+ * the Terminal tab from spawning its own `claude --resume` against one, which
+ * would fork a SECOND, divergent process on the same single-writer JSONL
+ * transcript — whether a turn is live (an interrupt/collision) or the session
+ * is merely paused (a stale twin that corrupts history the moment it's typed
+ * into). Returns a replacement command that explains the refusal (or attaches
+ * to a real tmux pane when one hosts the session), or null when there is
+ * nothing to fork and the resume is safe.
+ *
+ * The ownership signal is exact, not heuristic: `resolveProviderSessionId`
+ * resolves to a non-null id ONLY for sessions present in cloudcli's sessions
+ * DB (see the wiring in `server/index.js`) — i.e. sessions chat can drive. So
+ * a non-empty resolved id IS "cloudcli owns this session."
  */
 function buildResumeGuardCommand(
   message: ShellIncomingMessage,
   dependencies: ShellWebSocketDependencies
 ): string | null {
-  const guardSeconds = getResumeGuardSeconds();
-  if (guardSeconds === 0) {
-    return null;
-  }
-
   const hasSession = readBoolean(message.hasSession);
   const sessionId = readString(message.sessionId);
   const initialCommand = readString(message.initialCommand);
@@ -196,27 +199,23 @@ function buildResumeGuardCommand(
     return null;
   }
 
-  // Only guarded when the resume would actually target an on-disk transcript.
-  if (!resolveResumeSessionId(message, dependencies)) {
-    return null;
-  }
-
-  let transcriptPath: string | null = null;
-  try {
-    transcriptPath = dependencies.resolveSessionTranscriptPath(sessionId);
-  } catch (error) {
-    console.error('Failed to resolve session transcript path:', error);
-  }
-
-  const idleSeconds = getTranscriptIdleSeconds(transcriptPath);
-  if (idleSeconds === null || idleSeconds >= guardSeconds) {
-    return null;
-  }
-
-  // Best case: the launch wrapper recorded the tmux session hosting this
-  // process. Attaching to that tmux IS the live process — same writer, fully
-  // interactive, nothing interrupted.
+  // Non-empty ⟹ a DB-backed, chat-drivable cloudcli session. Empty ⟹ an
+  // unknown session id with nothing to fork — let it start fresh.
   const providerSessionId = resolveResumeSessionId(message, dependencies);
+  if (!providerSessionId) {
+    return null;
+  }
+
+  // Explicit operator override: CLOUDCLI_RESUME_GUARD_SECONDS=0 disables the
+  // guard entirely and allows a raw terminal resume/fork for anyone who
+  // knowingly wants one.
+  if (getResumeGuardSeconds() === 0) {
+    return null;
+  }
+
+  // Best case: an external launch wrapper recorded the tmux pane hosting this
+  // process. Attaching to that tmux IS the live process — same writer, fully
+  // interactive, nothing forked.
   const tmuxName = getSessionOriginEntry(providerSessionId)?.tmux;
   if (tmuxName && SAFE_SESSION_ID_PATTERN.test(tmuxName) && os.platform() !== 'win32') {
     return (
@@ -226,12 +225,21 @@ function buildResumeGuardCommand(
     );
   }
 
-  const idle = Math.round(idleSeconds);
-  const warningLines = [
-    `!! Session appears to be RUNNING elsewhere (transcript written ${idle}s ago).`,
-    `Refusing to resume: a second writer would interrupt the live process.`,
-    `Wait for it to go idle (guard window: ${guardSeconds}s) and reopen, or set CLOUDCLI_RESUME_GUARD_SECONDS=0 to disable this guard.`,
-  ];
+  // Cloudcli owns this session and chat is its only interface. Refuse the fork
+  // and send the operator to chat. The registry only sharpens the wording
+  // (live turn vs paused); the action is the same either way.
+  const runningLive = chatRunRegistry.isProcessing(sessionId);
+  const warningLines = runningLive
+    ? [
+        `!! Session is RUNNING in cloudcli right now (a turn is streaming).`,
+        `Refusing to open a terminal on it: a second writer would fork the live session.`,
+        `Open it in the Chat view to watch live and send input — chat owns this session.`,
+      ]
+    : [
+        `!! This is a cloudcli chat session — chat owns it.`,
+        `Refusing to resume in a terminal: it would fork a divergent second copy on the same transcript.`,
+        `Continue this session in the Chat view instead. (Set CLOUDCLI_RESUME_GUARD_SECONDS=0 to override.)`,
+      ];
 
   if (os.platform() === 'win32') {
     const echoes = warningLines.map((line) => `Write-Host '${line}'`).join('; ');

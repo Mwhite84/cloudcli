@@ -126,6 +126,7 @@ export interface ChatInterfaceProps {
   onInputFocusChange?: (focused: boolean) => void;
   onSessionProcessing?: MarkSessionProcessing;
   onSessionIdle?: MarkSessionIdle;
+  onSessionActivity?: (sessionId?: string | null) => void;
   processingSessions?: SessionActivityMap;
   onNavigateToSession?: (targetSessionId: string, options?: SessionNavigationOptions) => void;
   onSessionEstablished?: (sessionId: string, context: SessionEstablishedContext) => void;

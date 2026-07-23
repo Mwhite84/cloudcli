@@ -9,6 +9,14 @@ export interface SessionActivity {
    * the elapsed-time display and the stale `chat_subscribed` idle-ack guard.
    */
   startedAt: number;
+  /**
+   * When the run last produced a live event (stream delta, tool call,
+   * thinking, status). Bumped throttled by `bumpSessionActivity`. Chat has no
+   * equivalent of the terminal's raw-byte proof-of-life, so this is what lets
+   * the indicator distinguish "streaming right now" from "quiet for N s"
+   * during a long tool call. Initialised to `startedAt`.
+   */
+  lastActivityAt: number;
 }
 
 export type SessionActivityMap = ReadonlyMap<string, SessionActivity>;
@@ -35,6 +43,13 @@ export type SyncProcessingSessions = (
 ) => void;
 
 const LOCAL_ACTIVITY_GRACE_MS = 10_000;
+
+/**
+ * Minimum spacing between `lastActivityAt` state writes. Stream deltas arrive
+ * far faster than one per second; throttling the bump keeps the heartbeat
+ * fresh without a re-render per delta.
+ */
+const ACTIVITY_BUMP_THROTTLE_MS = 900;
 
 const sessionActivityMapsMatch = (
   left: ReadonlyMap<string, SessionActivity>,
@@ -79,11 +94,14 @@ export function useSessionProtection() {
 
     setProcessingSessions((prev) => {
       const existing = prev.get(sessionId);
+      const now = Date.now();
       const next: SessionActivity = {
         statusText:
           activity?.statusText !== undefined ? activity.statusText : existing?.statusText ?? null,
         canInterrupt: activity?.canInterrupt ?? existing?.canInterrupt ?? true,
-        startedAt: existing?.startedAt ?? Date.now(),
+        startedAt: existing?.startedAt ?? now,
+        // A processing mark or status update is itself proof of life.
+        lastActivityAt: now,
       };
 
       if (
@@ -96,6 +114,30 @@ export function useSessionProtection() {
 
       const updated = new Map(prev);
       updated.set(sessionId, next);
+      return updated;
+    });
+  }, []);
+
+  const bumpSessionActivity = useCallback((sessionId?: string | null) => {
+    if (!sessionId) {
+      return;
+    }
+
+    setProcessingSessions((prev) => {
+      const existing = prev.get(sessionId);
+      // Only sessions already known to be processing carry a heartbeat; a bump
+      // never resurrects an idle/cleared session.
+      if (!existing) {
+        return prev;
+      }
+
+      const now = Date.now();
+      if (now - existing.lastActivityAt < ACTIVITY_BUMP_THROTTLE_MS) {
+        return prev;
+      }
+
+      const updated = new Map(prev);
+      updated.set(sessionId, { ...existing, lastActivityAt: now });
       return updated;
     });
   }, []);
@@ -150,6 +192,9 @@ export function useSessionProtection() {
             snapshot.statusText !== undefined ? snapshot.statusText : existing?.statusText ?? null,
           canInterrupt: snapshot.canInterrupt ?? existing?.canInterrupt ?? true,
           startedAt: snapshotStartedAt ?? existing?.startedAt ?? now,
+          // The poll carries no per-event timing; keep any live heartbeat we
+          // already have, else fall back to the run's start.
+          lastActivityAt: existing?.lastActivityAt ?? snapshotStartedAt ?? now,
         });
       }
 
@@ -168,5 +213,8 @@ export function useSessionProtection() {
     markSessionProcessing,
     markSessionIdle,
     syncProcessingSessions,
+    bumpSessionActivity,
   };
 }
+
+export type BumpSessionActivity = (sessionId?: string | null) => void;

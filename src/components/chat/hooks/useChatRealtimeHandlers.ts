@@ -38,6 +38,8 @@ interface UseChatRealtimeHandlersArgs {
   statusCheckSentAtRef: MutableRefObject<Map<string, number>>;
   onSessionProcessing?: MarkSessionProcessing;
   onSessionIdle?: MarkSessionIdle;
+  /** Bumps a running session's live-activity heartbeat (throttled downstream). */
+  onSessionActivity?: (sessionId?: string | null) => void;
   onWebSocketReconnect?: () => void;
   sessionStore: SessionStore;
 }
@@ -69,6 +71,7 @@ export function useChatRealtimeHandlers({
   statusCheckSentAtRef,
   onSessionProcessing,
   onSessionIdle,
+  onSessionActivity,
   onWebSocketReconnect,
   sessionStore,
 }: UseChatRealtimeHandlersArgs) {
@@ -176,6 +179,8 @@ export function useChatRealtimeHandlers({
       if (msg.kind === 'stream_delta') {
         const text = (msg.content as string) || '';
         if (!text) return;
+        // Proof of life for the heartbeat (throttled in the state layer).
+        if (sid) onSessionActivity?.(sid);
         accumulatedStreamRef.current += text;
         if (!streamTimerRef.current) {
           streamTimerRef.current = window.setTimeout(() => {
@@ -216,6 +221,8 @@ export function useChatRealtimeHandlers({
 
       if (sid && shouldPersist) {
         sessionStore.appendRealtime(sid, msg as unknown as NormalizedMessage);
+        // tool_use / tool_result / thinking / text — the run is doing work.
+        onSessionActivity?.(sid);
       }
 
       // --- UI side effects for specific kinds ---
@@ -342,6 +349,7 @@ export function useChatRealtimeHandlers({
     statusCheckSentAtRef,
     onSessionProcessing,
     onSessionIdle,
+    onSessionActivity,
     onWebSocketReconnect,
     sessionStore,
   ]);

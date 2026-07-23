@@ -46,6 +46,7 @@ function MainContent({
   onInputFocusChange,
   onSessionProcessing,
   onSessionIdle,
+  onSessionActivity,
   processingSessions,
   onNavigateToSession,
   onSessionEstablished,
@@ -166,6 +167,7 @@ function MainContent({
                 onInputFocusChange={onInputFocusChange}
                 onSessionProcessing={onSessionProcessing}
                 onSessionIdle={onSessionIdle}
+                onSessionActivity={onSessionActivity}
                 processingSessions={processingSessions}
                 onNavigateToSession={onNavigateToSession}
                 onSessionEstablished={onSessionEstablished}
